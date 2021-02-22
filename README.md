@@ -4,7 +4,7 @@ Marketplace Utilities
 ## What is it for
 
 This library is intended for automation of operator deployment
-on OpenShift 4 via Openshift Marketplace.
+on OpenShift 4 via OpenShift Marketplace.
 
 ## How to use
 
