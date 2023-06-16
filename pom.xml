@@ -8,6 +8,30 @@
 	<artifactId>marketplace-utilities</artifactId>
 	<version>1.2-2</version>
 
+	<name>Marketplace utilities</name>
+	<description>Utility library to interact with OpenShift marketplace</description>
+	<url>https://github.com/jboss-fuse/marketplace-utilities</url>
+	<licenses>
+		<license>
+			<name>The Apache Software License, Version 2.0</name>
+			<url>http://www.apache.org/licenses/LICENSE-2.0</url>
+			<distribution>repo</distribution>
+		</license>
+	</licenses>
+
+	<scm>
+		<url>https://github.com/jboss-fuse/marketplace-utilities</url>
+		<connection>scm:git:git://github.com/jboss-fuse/marketplace-utilities.git</connection>
+		<developerConnection>scm:git:git@github.com:jboss-fuse/marketplace-utilities.git</developerConnection>
+		<tag>1.2-2</tag>
+	</scm>
+
+	<developers>
+		<developer>
+			<name>jboss-qe</name>
+		</developer>
+	</developers>
+
 	<properties>
 		<docker.java.version>3.2.11</docker.java.version>
 	</properties>
@@ -101,6 +125,28 @@
 		</repository>
 	</repositories>
 
+	<pluginRepositories>
+		<pluginRepository>
+			<id>jboss-public-repository-group</id>
+			<name>JBoss Public Repository Group</name>
+			<url>http://repository.jboss.org/nexus/content/groups/public/</url>
+		</pluginRepository>
+	</pluginRepositories>
+
+	<distributionManagement>
+		<repository>
+			<id>jboss-releases-repository</id>
+			<name>JBoss Releases Repository</name>
+			<url>https://repository.jboss.org/nexus/service/local/staging/deploy/maven2</url>
+		</repository>
+		<snapshotRepository>
+			<id>jboss-snapshots-repository</id>
+			<name>JBoss Snapshots Repository</name>
+			<url>https://repository.jboss.org/nexus/content/repositories/snapshots</url>
+		</snapshotRepository>
+	</distributionManagement>
+
+
 	<build>
 		<plugins>
 			<plugin>
@@ -110,6 +156,25 @@
 				<configuration>
 					<source>1.8</source>
 					<target>1.8</target>
+				</configuration>
+			</plugin>
+			<plugin>
+				<groupId>org.sonatype.plugins</groupId>
+				<artifactId>nexus-staging-maven-plugin</artifactId>
+				<version>1.6.13</version>
+				<executions>
+					<execution>
+						<id>default-deploy</id>
+						<phase>deploy</phase>
+						<goals>
+							<goal>deploy</goal>
+						</goals>
+					</execution>
+				</executions>
+				<configuration>
+					<serverId>jboss-releases-repository</serverId>
+					<nexusUrl>https://repository.jboss.org/nexus</nexusUrl>
+					<stagingProfileId>2161b7b8da0080</stagingProfileId>
 				</configuration>
 			</plugin>
 		</plugins>
