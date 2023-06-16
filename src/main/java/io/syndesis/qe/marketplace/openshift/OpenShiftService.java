@@ -23,11 +23,20 @@ import java.util.concurrent.TimeoutException;
 
 import cz.xtf.core.openshift.OpenShift;
 import io.fabric8.kubernetes.api.model.Secret;
+import io.fabric8.kubernetes.api.model.SecretBuilder;
+import io.fabric8.kubernetes.api.model.ServiceAccount;
+import io.fabric8.kubernetes.api.model.ServiceAccountBuilder;
 import io.fabric8.kubernetes.client.KubernetesClientException;
 import io.fabric8.kubernetes.client.dsl.base.CustomResourceDefinitionContext;
-import io.fabric8.openshift.api.model.operatorhub.manifests.PackageChannel;
-import io.fabric8.openshift.api.model.operatorhub.manifests.PackageManifest;
 
+import io.fabric8.openshift.api.model.OperatorHub;
+import io.fabric8.openshift.api.model.operatorhub.lifecyclemanager.v1.CSVDescription;
+import io.fabric8.openshift.api.model.operatorhub.lifecyclemanager.v1.PackageChannel;
+import io.fabric8.openshift.api.model.operatorhub.lifecyclemanager.v1.PackageChannelBuilder;
+import io.fabric8.openshift.api.model.operatorhub.lifecyclemanager.v1.PackageChannelFluent;
+import io.fabric8.openshift.api.model.operatorhub.lifecyclemanager.v1.PackageManifest;
+import io.fabric8.openshift.api.model.operatorhub.lifecyclemanager.v1.PackageManifestBuilder;
+import io.fabric8.openshift.api.model.operatorhub.v1alpha1.CatalogSource;
 import lombok.Getter;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
@@ -134,9 +143,11 @@ public class OpenShiftService {
             auth.put("auth", Base64.encodeBase64String(authString.getBytes(StandardCharsets.UTF_8)));
             secretJson.getJSONObject("auths").put(openShiftConfiguration.getDockerRegistry(), auth);
             log.info("Setting up global pull-secret");
-            openShiftClient.secrets().inNamespace("openshift-config").withName("pull-secret").edit()
-                .addToData(".dockerconfigjson", new String(Base64.encodeBase64(secretJson.toString().getBytes())))
-                .done();
+            openShiftClient.secrets().inNamespace("openshift-config").withName("pull-secret").edit(
+                    s -> new SecretBuilder(s)
+                            .addToData(".dockerconfigjson", new String(Base64.encodeBase64(secretJson.toString().getBytes())))
+                            .build()
+            );
             waitForMCP();
         }
     }
@@ -192,21 +203,25 @@ public class OpenShiftService {
         Map<String, String> obligatoryMap = new HashMap<>();
         obligatoryMap.put(".dockerconfigjson", pullSecretContent);
 
-        Secret s = openShiftClient.inNamespace("openshift-marketplace").secrets().createOrReplaceWithNew()
-            .withType("kubernetes.io/dockerconfigjson")
-            .editOrNewMetadata()
-            .withName("quay-pull-secret")
-            .withNamespace("openshift-marketplace")
-            .endMetadata()
-            .withData(obligatoryMap)
-            .done();
+        final Secret s = openShiftClient.inNamespace("openshift-marketplace").secrets().createOrReplace(
+                new SecretBuilder()
+                        .withType("kubernetes.io/dockerconfigjson")
+                        .editOrNewMetadata()
+                        .withName("quay-pull-secret")
+                        .withNamespace("openshift-marketplace")
+                        .endMetadata()
+                        .withData(obligatoryMap)
+                        .build()
+                );
 
-        openShiftClient.serviceAccounts().inNamespace("openshift-marketplace").withName("default").edit()
-            .addNewSecret()
-            .withName(s.getMetadata().getName())
-            .withNamespace(s.getMetadata().getNamespace())
-            .endSecret()
-            .done();
+        openShiftClient.serviceAccounts().inNamespace("openshift-marketplace").withName("default").edit(
+                serviceAccount -> new ServiceAccountBuilder(serviceAccount)
+                        .addNewSecret()
+                        .withName(s.getMetadata().getName())
+                        .withNamespace(s.getMetadata().getNamespace())
+                        .endSecret()
+                        .build()
+                );
     }
 
     public OpenShift getClient() {
@@ -281,10 +296,13 @@ public class OpenShiftService {
      * @return the {@link PackageChannel} found or {@link IllegalArgumentException} if not found
      */
     public PackageChannel getChannel(final String source, final String operatorName, final String channelName) {
-        PackageManifest found = getCatalog().get(source).stream().filter(pack -> operatorName.equals(pack.getPackageName()))
+        PackageManifest found = getCatalog().get(source).stream()
+                .filter(pack -> operatorName.equals(pack.getAdditionalProperties().get("packageName")))
             .findFirst().orElseThrow(() -> new IllegalArgumentException("Operator " + operatorName + " not found"));
-        String channelToUse = channelName != null ? channelName : found.getDefaultChannel();
-        return found.getChannels().stream().filter(ch -> channelToUse.equals(ch.getName())).findFirst()
-            .orElseThrow(() -> new IllegalArgumentException("Channel " + channelToUse + " not found"));
+        String channelToUse = channelName != null ? channelName : (String) found.getAdditionalProperties().get("defaultChannel");
+        Map<String, Object> channelMap = ((List<Map>) found.getAdditionalProperties().get("channels")).stream()
+                .filter(ch -> channelToUse.equals(ch.get("name"))).findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Channel " + channelToUse + " not found"));
+        return new PackageChannel((String) channelMap.get("currentCSV"), null, (String) channelMap.get("name"));
     }
 }
