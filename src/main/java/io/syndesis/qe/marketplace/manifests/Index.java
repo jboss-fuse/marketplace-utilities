@@ -3,12 +3,16 @@ package io.syndesis.qe.marketplace.manifests;
 import static io.syndesis.qe.marketplace.util.HelperFunctions.readResource;
 import static io.syndesis.qe.marketplace.util.HelperFunctions.waitFor;
 
+import io.fabric8.kubernetes.api.model.GenericKubernetesResource;
+import io.fabric8.kubernetes.client.utils.Serialization;
 import io.syndesis.qe.marketplace.openshift.OpenShiftService;
 import io.syndesis.qe.marketplace.quay.QuayService;
 import io.syndesis.qe.marketplace.quay.QuayUser;
 import io.syndesis.qe.marketplace.util.HelperFunctions;
 
 import org.apache.commons.io.IOUtils;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
 
 import java.io.File;
 import java.io.FileWriter;
@@ -118,7 +122,10 @@ public class Index {
         catalogSource = catalogSource.replaceAll("IMAGE", name)
             .replaceAll("DISPLAY_NAME", catalogName)
             .replaceAll("NAME", catalogName);
-        ocp.customResource(catalogSourceIndex()).createOrReplace(MARKETPLACE_NAMESPACE, catalogSource);
+
+        GenericKubernetesResource k8resource = Serialization.jsonMapper().readValue(catalogSource, GenericKubernetesResource.class);
+        ocp.genericKubernetesResources(catalogSourceIndex()).inNamespace(MARKETPLACE_NAMESPACE).resource(k8resource).createOrReplace();
+
         Predicate<Pod> podFound = pod ->
             pod.getMetadata().getName().startsWith(catalogName)
                 && "Running".equalsIgnoreCase(pod.getStatus().getPhase());
@@ -126,7 +133,8 @@ public class Index {
             .getItems().stream().anyMatch(podFound), 5, 60 * 1000);
     }
 
-    public void removeIndexFromCluster(OpenShiftService service) {
-        service.getClient().customResource(catalogSourceIndex()).delete(MARKETPLACE_NAMESPACE, ocpName);
+    public void removeIndexFromCluster(OpenShiftService service) throws JsonProcessingException {
+        GenericKubernetesResource k8resource = Serialization.jsonMapper().readValue(ocpName, GenericKubernetesResource.class);
+        service.getClient().genericKubernetesResources(catalogSourceIndex()).inNamespace(MARKETPLACE_NAMESPACE).resource(k8resource).createOrReplace();
     }
 }

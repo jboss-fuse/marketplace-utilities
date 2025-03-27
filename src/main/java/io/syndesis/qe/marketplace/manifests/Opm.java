@@ -46,10 +46,12 @@ public class Opm {
         CustomResourceDefinitionContext crdContext = new CustomResourceDefinitionContext.Builder()
             .withGroup("config.openshift.io")
             .withVersion("v1")
+            .withKind("ClusterOperator")
             .withPlural("clusteroperators")
             .withScope("Cluster")
             .build();
-        JSONObject apiServer = new JSONObject(ocpSvc.getClient().customResource(crdContext).get("openshift-apiserver"));
+
+        JSONObject apiServer = new JSONObject(this.ocpSvc.getClient().genericKubernetesResources(crdContext).list().getItems().stream().filter(s -> s.getMetadata().getName().equals("opesnhift-apiserver")).findFirst());
         String fullVersion = apiServer.getJSONObject("status").getJSONArray("versions").getJSONObject(0).getString("version");
         return "v" + fullVersion.substring(0, fullVersion.lastIndexOf("."));
     }

@@ -2,12 +2,10 @@ package io.syndesis.qe.marketplace.manifests;
 
 import static io.syndesis.qe.marketplace.util.HelperFunctions.readResource;
 
-import io.syndesis.qe.marketplace.openshift.OpenShiftService;
-import io.syndesis.qe.marketplace.util.HelperFunctions;
-
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
 import org.apache.commons.io.IOUtils;
+
 import org.yaml.snakeyaml.Yaml;
 
 import java.io.File;
@@ -25,7 +23,11 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import cz.xtf.core.openshift.OpenShift;
+import io.fabric8.kubernetes.api.model.GenericKubernetesResource;
 import io.fabric8.kubernetes.client.dsl.base.CustomResourceDefinitionContext;
+import io.fabric8.kubernetes.client.utils.Serialization;
+import io.syndesis.qe.marketplace.openshift.OpenShiftService;
+import io.syndesis.qe.marketplace.util.HelperFunctions;
 import lombok.Getter;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
@@ -136,7 +138,9 @@ public class Bundle {
         String operatorGroupYaml = readResource("openshift/create-operatorgroup.yaml")
             .replaceAll("OPENSHIFT_PROJECT", namespace);
 
-        ocp.customResource(operatorGroupCrdContext).createOrReplace(namespace, operatorGroupYaml);
+        GenericKubernetesResource k8resource = Serialization.jsonMapper().readValue(operatorGroupYaml, GenericKubernetesResource.class);
+        ocp.genericKubernetesResources(operatorGroupCrdContext).inNamespace(namespace).resource(k8resource).createOrReplace();
+
     }
 
     public void createSubscription(OpenShiftService service, String name, String channel, String startingCSV) throws IOException {
@@ -154,7 +158,9 @@ public class Bundle {
             ocp.createProjectRequest(namespace);
         }
         createOperatorGroup(service);
-        ocp.customResource(subscriptionContext()).createOrReplace(namespace, subscription);
+
+        GenericKubernetesResource k8resource = Serialization.jsonMapper().readValue(subscription, GenericKubernetesResource.class);
+        ocp.genericKubernetesResources(subscriptionContext()).inNamespace(namespace).resource(k8resource).createOrReplace();
     }
 
     @SneakyThrows
@@ -168,7 +174,8 @@ public class Bundle {
             .replaceAll("NAME", name)
             .replaceAll("SOURCE", source);
 
-        ocp.customResource(subscriptionContext()).createOrReplace(namespace, subscription);
+        GenericKubernetesResource k8resource = Serialization.jsonMapper().readValue(subscription, GenericKubernetesResource.class);
+        ocp.genericKubernetesResources(subscriptionContext()).inNamespace(namespace).resource(k8resource).createOrReplace();
     }
 
     public String getDefaultChannel() {

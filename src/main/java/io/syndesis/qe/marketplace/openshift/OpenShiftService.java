@@ -4,6 +4,11 @@ import static io.syndesis.qe.marketplace.util.HelperFunctions.readResource;
 import static io.syndesis.qe.marketplace.util.HelperFunctions.runCmd;
 import static io.syndesis.qe.marketplace.util.HelperFunctions.waitFor;
 
+import io.fabric8.kubernetes.api.model.GenericKubernetesResource;
+import io.fabric8.kubernetes.api.model.SecretBuilder;
+import io.fabric8.kubernetes.api.model.ServiceAccount;
+import io.fabric8.kubernetes.api.model.ServiceAccountBuilder;
+import io.fabric8.kubernetes.client.utils.Serialization;
 import io.syndesis.qe.marketplace.util.HelperFunctions;
 
 import org.apache.commons.codec.binary.StringUtils;
@@ -14,6 +19,7 @@ import java.io.File;
 import java.io.IOException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeoutException;
@@ -116,8 +122,7 @@ public class OpenShiftService {
             .withVersion("v1")
             .build();
 
-        openShiftClient.customResource(operatorSourceCrdContext)
-            .delete("openshift-marketplace", quayPackageName + "-opsrc");
+        openShiftClient.genericKubernetesResources(operatorSourceCrdContext).inNamespace("openshift-marketplace").withName(quayPackageName + "-opsrc").delete();
     }
 
     public void refreshOperators() {
@@ -135,7 +140,7 @@ public class OpenShiftService {
             .build();
 
         try {
-            openShiftClient.customResource(operatorSourceCrdContext).get("brew-registry");
+            openShiftClient.genericKubernetesResources(operatorSourceCrdContext).withName("brew-registry").get();
         } catch (KubernetesClientException e) {
             log.info("ICSP was not found, creating new!");
             if (openShiftConfiguration.getIcspConfigURL() == null) {
@@ -158,21 +163,28 @@ public class OpenShiftService {
         Map<String, String> obligatoryMap = new HashMap<>();
         obligatoryMap.put(".dockerconfigjson", pullSecretContent);
 
-        Secret s = openShiftClient.inNamespace("openshift-marketplace").secrets().createOrReplaceWithNew()
-            .withType("kubernetes.io/dockerconfigjson")
-            .editOrNewMetadata()
-            .withName("quay-pull-secret")
-            .withNamespace("openshift-marketplace")
-            .endMetadata()
-            .withData(obligatoryMap)
-            .done();
+        Secret s = new SecretBuilder()
+                .withStringData(obligatoryMap)
+                .withType("kubernetes.io/dockerconfigjson")
+                .withNewMetadata()
+                    .withName("quay-pull-secret")
+                    .withNamespace("openshift-marketplace")
+                .endMetadata()
+                .build();
+        openShiftClient.secrets().createOrReplace(s);
 
-        openShiftClient.serviceAccounts().inNamespace("openshift-marketplace").withName("default").edit()
-            .addNewSecret()
-            .withName(s.getMetadata().getName())
-            .withNamespace(s.getMetadata().getNamespace())
+        ServiceAccount sa = new ServiceAccountBuilder()
+            .withNewMetadata()
+                .withName("default")
+            .endMetadata()
+            .editFirstSecret()
+                .withName(s.getMetadata().getName())
+                .withNamespace(s.getMetadata().getNamespace())
             .endSecret()
-            .done();
+        .build();
+        openShiftClient.serviceAccounts().inNamespace("openshift-marketplace").resource(sa)
+                .serverSideApply();
+
     }
 
     private void disableDefaultSources() throws IOException {
@@ -185,9 +197,10 @@ public class OpenShiftService {
             .withVersion("v1")
             .build();
 
-        openShiftClient.customResource(crdContext)
-            .createOrReplace("openshift-marketplace",
-                OpenShiftService.class.getResourceAsStream("/openshift/disable-default-sources.yaml"));
+        String dfs = HelperFunctions.readResource("openshift/disable-default-sources.yaml");
+
+        GenericKubernetesResource k8resource = Serialization.jsonMapper().readValue(dfs, GenericKubernetesResource.class);
+        openShiftClient.genericKubernetesResources(crdContext).inNamespace("openshift-marketplace").resource(k8resource).createOrReplace();
     }
 
     private void createOpsrcToken() throws IOException {
@@ -195,14 +208,16 @@ public class OpenShiftService {
         Map<String, String> data = new HashMap<>();
         data.put("token", openShiftConfiguration.getQuayOpsrcToken());
 
-        openShiftClient.inNamespace("openshift-marketplace").secrets().createOrReplaceWithNew()
-            .withNewMetadata()
-            .withName(quayPackageName + "-opsrctoken")
-            .withNamespace("openshift-marketplace")
-            .endMetadata()
-            .withData(data)
-            .withType("Opaque")
-            .done();
+        Secret s = new SecretBuilder()
+                .withStringData(data)
+                .withType("Opaque")
+                .withNewMetadata()
+                .withName(quayPackageName + "-opsrctoken")
+                .withNamespace("openshift-marketplace")
+                .endMetadata()
+                .build();
+        openShiftClient.secrets().createOrReplace(s);
+
     }
 
     private void createOpsrc() throws IOException {
@@ -219,9 +234,8 @@ public class OpenShiftService {
             .replaceAll("PACKAGE_NAME", quayPackageName)
             .replaceAll("QUAY_NAMESPACE", quayNamespace);
 
-        openShiftClient.customResource(operatorSourceCrdContext)
-            .createOrReplace("openshift-marketplace",
-                new ByteArrayInputStream(operatorSourceYaml.getBytes(StandardCharsets.UTF_8)));
+        GenericKubernetesResource k8resource = Serialization.jsonMapper().readValue(operatorSourceYaml, GenericKubernetesResource.class);
+        openShiftClient.genericKubernetesResources(operatorSourceCrdContext).inNamespace("openshift-marketplace").resource(k8resource).createOrReplace();
     }
 
     private void createNamespace() throws IOException {
@@ -264,13 +278,14 @@ public class OpenShiftService {
             Map<String, String> pullSecretMap = new HashMap<>();
             pullSecretMap.put(".dockerconfigjson", openShiftConfiguration.getPullSecret());
 
-            openShiftClient.secrets().createOrReplaceWithNew()
-                .withNewMetadata()
-                .withName(openShiftConfiguration.getPullSecretName())
-                .endMetadata()
-                .withData(pullSecretMap)
-                .withType("kubernetes.io/dockerconfigjson")
-                .done();
+            Secret s = new SecretBuilder()
+                    .withStringData(pullSecretMap)
+                    .withType("kubernetes.io/dockerconfigjson")
+                    .withNewMetadata()
+                    .withName(openShiftConfiguration.getPullSecretName())
+                    .endMetadata()
+                    .build();
+            openShiftClient.secrets().createOrReplace(s);
         }
     }
 
@@ -287,9 +302,8 @@ public class OpenShiftService {
         String operatorGroupYaml = readResource("openshift/create-operatorgroup.yaml")
             .replaceAll("OPENSHIFT_PROJECT", openShiftConfiguration.getNamespace());
 
-        openShiftClient.customResource(operatorGroupCrdContext)
-            .createOrReplace(openShiftConfiguration.getNamespace(),
-                new ByteArrayInputStream(operatorGroupYaml.getBytes(StandardCharsets.UTF_8)));
+        GenericKubernetesResource k8resource = Serialization.jsonMapper().readValue(operatorGroupYaml, GenericKubernetesResource.class);
+        openShiftClient.genericKubernetesResources(operatorGroupCrdContext).inNamespace(openShiftConfiguration.getNamespace()).resource(k8resource).createOrReplace();
     }
 
     private void createSubscription() throws IOException {
@@ -314,9 +328,8 @@ public class OpenShiftService {
             .withVersion("v1alpha1")
             .build();
 
-        openShiftClient.customResource(subscriptionCrdContext)
-            .createOrReplace(openShiftConfiguration.getNamespace(),
-                new ByteArrayInputStream(subscriptionYaml.getBytes(StandardCharsets.UTF_8)));
+        GenericKubernetesResource k8resource = Serialization.jsonMapper().readValue(subscriptionYaml, GenericKubernetesResource.class);
+        openShiftClient.genericKubernetesResources(subscriptionCrdContext).inNamespace(openShiftConfiguration.getNamespace()).resource(k8resource).createOrReplace();
 
         try {
             waitFor(() ->

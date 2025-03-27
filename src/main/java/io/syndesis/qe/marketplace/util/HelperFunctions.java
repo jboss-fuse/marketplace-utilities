@@ -45,7 +45,7 @@ import cz.xtf.core.openshift.OpenShift;
 import io.fabric8.kubernetes.api.model.LocalObjectReference;
 import io.fabric8.kubernetes.api.model.ServiceAccount;
 import io.fabric8.kubernetes.api.model.ServiceAccountList;
-import io.fabric8.kubernetes.api.model.apiextensions.CustomResourceDefinition;
+import io.fabric8.kubernetes.api.model.apiextensions.v1.CustomResourceDefinition;
 import io.fabric8.kubernetes.client.dsl.base.CustomResourceDefinitionContext;
 import lombok.extern.slf4j.Slf4j;
 
@@ -257,7 +257,7 @@ public class HelperFunctions {
             .withGroup(crd.getSpec().getGroup())
             .withPlural(crd.getSpec().getNames().getPlural())
             .withScope(crd.getSpec().getScope())
-            .withVersion(crd.getSpec().getVersion());
+            .withVersion(crd.getSpec().getVersions().get(0).toString());
         return builder.build();
     }
 
