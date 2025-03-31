@@ -6,7 +6,7 @@
 
 	<groupId>io.syndesis.qe</groupId>
 	<artifactId>marketplace-utilities</artifactId>
-	<version>1.2-2</version>
+	<version>1.2-2-xtf-upgrade</version>
 
 	<name>Marketplace utilities</name>
 	<description>Utility library to interact with OpenShift marketplace</description>
@@ -46,13 +46,13 @@
 		<dependency>
 			<groupId>org.projectlombok</groupId>
 			<artifactId>lombok</artifactId>
-			<version>1.18.12</version>
+			<version>1.18.28</version>
 		</dependency>
 
 		<dependency>
 			<groupId>cz.xtf</groupId>
 			<artifactId>core</artifactId>
-			<version>0.24</version>
+			<version>0.35-fix-jsolovjo</version>
 		</dependency>
 
 		<dependency>

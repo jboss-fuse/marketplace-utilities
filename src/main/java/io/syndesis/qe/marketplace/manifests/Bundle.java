@@ -6,12 +6,15 @@ import static io.syndesis.qe.marketplace.util.HelperFunctions.waitFor;
 
 import static com.jayway.jsonpath.Criteria.where;
 
+import io.fabric8.kubernetes.api.model.GenericKubernetesResource;
+import io.fabric8.kubernetes.client.utils.Serialization;
 import io.syndesis.qe.marketplace.openshift.OpenShiftService;
 import io.syndesis.qe.marketplace.util.HelperFunctions;
 
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
 import org.apache.commons.io.IOUtils;
+
 import org.assertj.core.api.Assertions;
 import org.assertj.core.api.SoftAssertions;
 import org.json.JSONArray;
@@ -166,16 +169,18 @@ public class Bundle {
             .withVersion("v1alpha2")
             .build();
 
-        if (((List)ocp.customResource(operatorGroupCrdContext).list(namespace).get("items")).isEmpty()) {
-            String operatorGroupYaml = readResource("openshift/create-operatorgroup.yaml")
-                    .replaceAll("OPENSHIFT_PROJECT", namespace);
-            ocp.customResource(operatorGroupCrdContext).createOrReplace(namespace, operatorGroupYaml);
-        }
+        String operatorGroupYaml = readResource("openshift/create-operatorgroup.yaml")
+            .replaceAll("OPENSHIFT_PROJECT", namespace);
+
+        JSONObject operatorGroupJsonObj = new JSONObject((Map)(new Yaml()).load(operatorGroupYaml));
+        String operatorGroupJson = operatorGroupJsonObj.toString();
+        GenericKubernetesResource k8resource = Serialization.jsonMapper().readValue(operatorGroupJson, GenericKubernetesResource.class);
+        ocp.genericKubernetesResources(operatorGroupCrdContext).inNamespace(namespace).resource(k8resource).createOrReplace();
     }
 
-    private void createOperatorGroup() throws IOException {
-        OpenShift ocp = ocpService.getClient();
-        String namespace = ocpService.getClient().getNamespace();
+    private static void createOperatorGroup(OpenShiftService service) throws IOException {
+        OpenShift ocp = service.getClient();
+        String namespace = ocp.getNamespace();
 
         createOperatorGroup(ocp, namespace);
     }
@@ -187,17 +192,22 @@ public class Bundle {
         String subscription = HelperFunctions.readResource("openshift/create-subscriptionindex.yaml");
         subscription = subscription.replaceAll("NAMESPACE", namespace)
             .replaceAll("CHANNEL", channel)
-            .replaceAll("STARTING_CSV", startingCSV)
+            .replaceAll("STARTING_CSV", startingCSV == null ? "NOCSV" : startingCSV)
             .replaceAll("NAME", name)
             .replaceAll("SOURCE", index.getOcpName());
 
-        subscriptionName = name;
-
+        if (startingCSV == null) {
+            subscription = subscription.replaceAll("startingCSV\\: NOCSV", "");
+        }
         if (ocp.getProject(namespace) == null) {
             ocp.createProjectRequest(namespace);
         }
-        createOperatorGroup();
-        ocp.customResource(subscriptionContext()).createOrReplace(namespace, subscription);
+        createOperatorGroup(ocpService);
+
+        JSONObject subscriptionJsonObj = new JSONObject((Map)(new Yaml()).load(subscription));
+        String subscriptionJson = subscriptionJsonObj.toString();
+        GenericKubernetesResource k8resource = Serialization.jsonMapper().readValue(subscriptionJson, GenericKubernetesResource.class);
+        ocp.genericKubernetesResources(subscriptionContext()).inNamespace(namespace).resource(k8resource).createOrReplace();
     }
 
     /**
@@ -217,12 +227,19 @@ public class Bundle {
         String subscription = HelperFunctions.readResource("openshift/create-subscriptionindex.yaml");
         subscription = subscription.replaceAll("NAMESPACE", namespace)
             .replaceAll("CHANNEL", channel)
-            .replaceAll("STARTING_CSV", startingCSV)
+            .replaceAll("STARTING_CSV", startingCSV == null ? "NOCSV" : startingCSV)
             .replaceAll("NAME", name)
             .replaceAll("SOURCE", source);
 
-        createOperatorGroup(ocp, namespace);
-        ocp.customResource(subscriptionContext()).createOrReplace(namespace, subscription);
+        if (startingCSV == null) {
+            subscription = subscription.replaceAll("startingCSV\\: NOCSV", "");
+        }
+        createOperatorGroup(service);
+
+        JSONObject subscriptionJsonObj = new JSONObject((Map)(new Yaml()).load(subscription));
+        String subscriptionJson = subscriptionJsonObj.toString();
+        GenericKubernetesResource k8resource = Serialization.jsonMapper().readValue(subscriptionJson, GenericKubernetesResource.class);
+        ocp.genericKubernetesResources(subscriptionContext()).inNamespace(namespace).resource(k8resource).createOrReplace();
     }
 
     /**
@@ -237,11 +254,13 @@ public class Bundle {
         OpenShift ocp = ocpService.getClient();
         String namespace = ocpService.getClient().getNamespace();
 
-        JSONObject subscription = new JSONObject(ocp.customResource(subscriptionContext()).get(namespace, subscriptionName));
+        JSONObject subscription = new JSONObject(ocp.genericKubernetesResources(subscriptionContext()).inNamespace(namespace).list().getItems().stream().filter(s -> s.getMetadata().getName().equals(subscriptionName)).findFirst());
         subscription.getJSONObject("spec").put("channel", newBundle.getDefaultChannel());
         waitFor(() -> {
             try {
-                ocp.customResource(subscriptionContext()).edit(namespace, subscriptionName, subscription.toString());
+                GenericKubernetesResource k8resource = Serialization.jsonMapper().readValue(subscription.toString(), GenericKubernetesResource.class);
+                ocp.genericKubernetesResources(subscriptionContext()).inNamespace(namespace).resource(k8resource).createOrReplace();
+
                 return true;
             } catch (Exception e) {
                 return false;
@@ -285,7 +304,7 @@ public class Bundle {
         );
 
         waitFor(() -> {
-            final DocumentContext documentContext = JsonPath.parse(ocp.customResource(installPlanContext()).list(ocp.getNamespace()));
+            final DocumentContext documentContext = JsonPath.parse(ocp.getClient().genericKubernetesResources(installPlanContext()).list().getItems().stream().filter(s -> s.getMetadata().getNamespace().equals(ocp.getNamespace())).findFirst());
 
             //Find all Complete installplans
             final Object read = documentContext

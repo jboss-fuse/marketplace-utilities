@@ -22,6 +22,7 @@ import java.util.Map;
 import java.util.concurrent.TimeoutException;
 
 import cz.xtf.core.openshift.OpenShift;
+import io.fabric8.kubernetes.api.model.GenericKubernetesResource;
 import io.fabric8.kubernetes.api.model.Secret;
 import io.fabric8.kubernetes.api.model.SecretBuilder;
 import io.fabric8.kubernetes.api.model.ServiceAccount;
@@ -29,6 +30,7 @@ import io.fabric8.kubernetes.api.model.ServiceAccountBuilder;
 import io.fabric8.kubernetes.client.KubernetesClientException;
 import io.fabric8.kubernetes.client.dsl.base.CustomResourceDefinitionContext;
 
+import io.fabric8.kubernetes.client.utils.Serialization;
 import io.fabric8.openshift.api.model.OperatorHub;
 import io.fabric8.openshift.api.model.operatorhub.lifecyclemanager.v1.CSVDescription;
 import io.fabric8.openshift.api.model.operatorhub.lifecyclemanager.v1.PackageChannel;
@@ -99,7 +101,8 @@ public class OpenShiftService {
         //make sure nodes are not being updated
         waitFor(() -> {
             try {
-                JSONObject mcpList = new JSONObject(openShiftClient.customResource(mcpContext).list());
+                JSONObject mcpList = new JSONObject(openShiftClient.getClient().genericKubernetesResources(mcpContext).list());
+
                 final JSONArray mcps = mcpList.getJSONArray("items");
                 boolean updated = false;
                 for (int i = 0; i < mcps.length(); i++) {
@@ -120,11 +123,15 @@ public class OpenShiftService {
         final String icspSource = IOUtils.toString(new URL(openShiftConfiguration.getIcspFile()), StandardCharsets.UTF_8);
         final String icspName = ((Map<String, String>) ((Map<String, Object>) new Yaml().load(icspSource)).get("metadata")).get("name");
         try {
-            openShiftClient.customResource(icspContext).get(icspName);
+            GenericKubernetesResource icspBrew = this.openShiftClient.genericKubernetesResources(icspContext).withName(icspName).get();
+            if (icspBrew != null) {
+                log.info("icsp {} already exists", icspBrew.getMetadata().getName());
+            }
         } catch (KubernetesClientException ignored) {
             log.info("ICSP was not found, creating new!");
             try {
-                openShiftClient.customResource(icspContext).createOrReplace(icspSource);
+                GenericKubernetesResource k8resource = Serialization.jsonMapper().readValue(icspSource, GenericKubernetesResource.class);
+                openShiftClient.genericKubernetesResources(icspContext).resource(k8resource).createOrReplace();
             } catch (Exception ex) {
                 log.error("Something went wrong while setting up ICSP, would you mind setting it manually?", ex);
                 throw new RuntimeException(ex);
@@ -162,7 +169,7 @@ public class OpenShiftService {
 
         log.info("Waiting for OCP to pick up new config, this might take a while...");
         waitFor(() -> {
-            JSONObject mcpList = new JSONObject(openShiftClient.customResource(mcpContext).list());
+            JSONObject mcpList = new JSONObject(openShiftClient.getClient().genericKubernetesResources(mcpContext).list());
             final JSONArray mcps = mcpList.getJSONArray("items");
             boolean updating = false;
             for (int i = 0; i < mcps.length(); i++) {
@@ -177,7 +184,7 @@ public class OpenShiftService {
         log.info("Nodes started upgrading, this will also take a while...");
         waitFor(() -> {
             try {
-                JSONObject mcpList = new JSONObject(openShiftClient.customResource(mcpContext).list());
+                JSONObject mcpList = new JSONObject(openShiftClient.getClient().genericKubernetesResources(mcpContext).list());
                 final JSONArray mcps = mcpList.getJSONArray("items");
                 boolean updated = false;
                 for (int i = 0; i < mcps.length(); i++) {
@@ -256,8 +263,9 @@ public class OpenShiftService {
         final ObjectMapper mapper = new ObjectMapper();
 
         Map<String, List<PackageManifest>> catalogContent = new HashMap<>();
-        final JSONArray items = new JSONObject(openShiftClient.customResource(crds)
-            .list("openshift-marketplace")).getJSONArray("items");
+        /*final JSONArray items = new JSONObject(openShiftClient.customResource(crds)
+            .list("openshift-marketplace")).getJSONArray("items");*/
+        final JSONArray items = new JSONObject(openShiftClient.getClient().genericKubernetesResources(crds).list().getItems().stream().filter(s -> s.getMetadata().getNamespace().equals("openshift-marketplace"))).getJSONArray("items");
         int itemLen = items.length();
         if (itemLen > 0) {
             for (int i = 0; i < itemLen; i++) {

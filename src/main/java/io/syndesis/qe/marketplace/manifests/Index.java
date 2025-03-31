@@ -5,6 +5,9 @@ import static io.syndesis.qe.marketplace.util.HelperFunctions.waitFor;
 
 import org.apache.commons.io.IOUtils;
 
+import org.json.JSONObject;
+import org.yaml.snakeyaml.Yaml;
+
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
@@ -12,11 +15,14 @@ import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Predicate;
 
+import io.fabric8.kubernetes.api.model.GenericKubernetesResource;
 import io.fabric8.kubernetes.api.model.Pod;
 import io.fabric8.kubernetes.client.dsl.base.CustomResourceDefinitionContext;
+import io.fabric8.kubernetes.client.utils.Serialization;
 import io.fabric8.openshift.client.OpenShiftClient;
 import io.syndesis.qe.marketplace.openshift.OpenShiftService;
 import io.syndesis.qe.marketplace.quay.QuayUser;
@@ -119,7 +125,12 @@ public class Index {
         catalogSource = catalogSource.replaceAll("IMAGE", name)
             .replaceAll("DISPLAY_NAME", catalogName)
             .replaceAll("NAME", catalogName);
-        ocp.customResource(catalogSourceIndex()).createOrReplace(MARKETPLACE_NAMESPACE, catalogSource);
+
+        JSONObject catalogSourceJsonObj = new JSONObject((Map<String, Object>) new Yaml().load(catalogSource));
+        String cataloSourceJson = catalogSourceJsonObj.toString();
+        GenericKubernetesResource k8resource = Serialization.jsonMapper().readValue(cataloSourceJson, GenericKubernetesResource.class);
+        ocp.genericKubernetesResources(catalogSourceIndex()).inNamespace(MARKETPLACE_NAMESPACE).resource(k8resource).createOrReplace();
+
         Predicate<Pod> podFound = pod ->
             pod.getMetadata().getName().startsWith(catalogName)
                 && "Running".equalsIgnoreCase(pod.getStatus().getPhase());
@@ -129,7 +140,8 @@ public class Index {
 
     public void removeIndexFromCluster() {
         try {
-            ocpService.getClient().customResource(catalogSourceIndex()).delete(MARKETPLACE_NAMESPACE, ocpName);
+            GenericKubernetesResource k8resource = Serialization.jsonMapper().readValue(ocpName, GenericKubernetesResource.class);
+            ocpService.getClient().genericKubernetesResources(catalogSourceIndex()).inNamespace(MARKETPLACE_NAMESPACE).resource(k8resource).createOrReplace();
         } catch (IOException e) {
             log.warn("Unable to remove index: ", e);
         }
